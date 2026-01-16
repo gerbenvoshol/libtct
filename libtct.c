@@ -135,7 +135,6 @@ static char* tct_find_else_block(char *start, char *end) {
     }
     return NULL;
 }
-
 char* tct_render(char *template, tct_arguments *argument) {
 #define IS_WHITESPACE(c) (c==' ' || c=='\t' || c=='\r' || c=='\n') 
     tct_section *section_start, *section_current;
@@ -152,6 +151,7 @@ char* tct_render(char *template, tct_arguments *argument) {
         char *trim_start, *trim_end;
 
         section_current->data = template;
+        section_current->should_free = false;
         section_current->length = start - template;
         result_len += section_current->length;
         section_current->next = calloc(1, sizeof(tct_section));
@@ -183,10 +183,10 @@ char* tct_render(char *template, tct_arguments *argument) {
                     
                     char *rendered = tct_render(if_template, argument);
                     section_current->data = rendered;
+                    section_current->should_free = true;
                     section_current->length = strlen(rendered);
                     result_len += section_current->length;
                     free(if_template);
-                    /* Note: rendered is not freed here; it will be freed later in section cleanup */
                 } else if (else_pos) {
                     /* Render the else block */
                     char *else_start = else_pos;
@@ -200,6 +200,7 @@ char* tct_render(char *template, tct_arguments *argument) {
                     
                     char *rendered = tct_render(else_template, argument);
                     section_current->data = rendered;
+                    section_current->should_free = true;
                     section_current->length = strlen(rendered);
                     result_len += section_current->length;
                     free(else_template);
@@ -260,6 +261,7 @@ char* tct_render(char *template, tct_arguments *argument) {
                         
                         char *rendered = tct_render(loop_template, scoped_args);
                         section_current->data = rendered;
+                        section_current->should_free = true;
                         section_current->length = strlen(rendered);
                         result_len += section_current->length;
                         free(loop_template);
@@ -288,6 +290,7 @@ char* tct_render(char *template, tct_arguments *argument) {
         
         /* Default: variable substitution */
         section_current->data = tct_get_valuen(argument, trim_start, trim_end - trim_start);
+        section_current->should_free = false;
         section_current->length = strlen(section_current->data);
         result_len += section_current->length;
         section_current->next = calloc(1, sizeof(tct_section));
@@ -296,6 +299,7 @@ char* tct_render(char *template, tct_arguments *argument) {
         template = end + TCT_END_SIGN_LEN;
     }
     section_current->data = template;
+    section_current->should_free = false;
     section_current->length = strlen(template);
 
     result = malloc(result_len + 1);
@@ -306,6 +310,7 @@ char* tct_render(char *template, tct_arguments *argument) {
         memcpy(write, section->data, section->length);
         write += section->length;
         section_start = section->next;
+        if (section->should_free && section->data) free(section->data);
         free(section);
     }
     *write = 0;

@@ -51,6 +51,7 @@ typedef struct _tct_arguments {
 typedef struct _tct_section {
     char *data;
     size_t length;
+    bool should_free;  /* Whether data should be freed */
     struct _tct_section *next;
 } tct_section;
 
