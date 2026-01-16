@@ -233,7 +233,13 @@ char* tct_render(char *template, tct_arguments *argument) {
                 while (current_arg) {
                     if (arg_count >= arg_capacity) {
                         arg_capacity = arg_capacity ? arg_capacity * 2 : 4;
-                        arg_array = realloc(arg_array, arg_capacity * sizeof(tct_arguments*));
+                        tct_arguments **new_array = realloc(arg_array, arg_capacity * sizeof(tct_arguments*));
+                        if (!new_array) {
+                            /* Out of memory - free what we have and skip this loop */
+                            free(arg_array);
+                            break;
+                        }
+                        arg_array = new_array;
                     }
                     arg_array[arg_count++] = current_arg;
                     current_arg = tct_find_next_argument(current_arg, var_name, var_len);
@@ -242,6 +248,7 @@ char* tct_render(char *template, tct_arguments *argument) {
                 /* Iterate in reverse order (to match the order items were added) */
                 for (int i = arg_count - 1; i >= 0; i--) {
                     const char *value = &arg_array[i]->data[var_len + 1];
+                    size_t value_len = strlen(value);
                     
                     /* Only render if value is truthy */
                     if (tct_is_truthy(value)) {
@@ -253,7 +260,7 @@ char* tct_render(char *template, tct_arguments *argument) {
                         
                         /* Create a scoped argument with current value prepended
                          * This ensures {{ variable }} inside the loop refers to the current iteration value */
-                        tct_arguments *scoped_args = calloc(1, sizeof(tct_arguments) + var_len + 1 + strlen(value) + 1);
+                        tct_arguments *scoped_args = calloc(1, sizeof(tct_arguments) + var_len + 1 + value_len + 1);
                         memcpy(scoped_args->data, var_name, var_len);
                         scoped_args->data[var_len] = '\0';
                         strcpy(&scoped_args->data[var_len + 1], value);
@@ -272,7 +279,9 @@ char* tct_render(char *template, tct_arguments *argument) {
                     }
                 }
                 
-                free(arg_array);
+                if (arg_array) {
+                    free(arg_array);
+                }
                 
                 /* Skip past the closing tag */
                 template = block_end;
