@@ -35,6 +35,8 @@ Tiny C Template engine (TCT) is a micro template engine for C Language with adva
 "{{#each items}}Item: {{ item }}{{/each}}"
 ```
 
+**Note**: The current implementation of loop blocks renders the content once if the variable is truthy. Full array iteration support is planned for future releases.
+
 ### Nested Templates
 All template features can be nested arbitrarily deep:
 ```c

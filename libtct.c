@@ -219,8 +219,9 @@ char* tct_render(char *template, tct_arguments *argument) {
             if (block_end) {
                 const char *value = tct_get_valuen(argument, var_name, var_len);
                 
-                /* For simplicity, if value exists and is truthy, render once */
-                /* A full implementation would parse arrays/lists */
+                /* Current implementation: if value exists and is truthy, render once
+                 * Note: A full implementation would parse arrays/lists and iterate over items.
+                 * For now, this provides basic loop support for single items. */
                 if (tct_is_truthy(value)) {
                     char *loop_content = end + TCT_END_SIGN_LEN;
                     size_t loop_len = block_end - loop_content;
