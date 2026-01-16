@@ -107,6 +107,78 @@ TEST(if_with_each) {
     free(result);
 }
 
+/* Array iteration - multiple items */
+TEST(array_multiple_items) {
+    tct_arguments *args = NULL;
+    tct_add_argument(args, "items", "%s", "Apple");
+    tct_add_argument(args, "items", "%s", "Banana");
+    tct_add_argument(args, "items", "%s", "Cherry");
+    
+    char *result = tct_render("{{#each items}}{{ items }}{{/each}}", args);
+    assert(strcmp(result, "AppleBananaCherry") == 0);
+    
+    tct_free_argument(args);
+    free(result);
+}
+
+/* Array iteration with separators */
+TEST(array_with_separators) {
+    tct_arguments *args = NULL;
+    tct_add_argument(args, "items", "%s", "1");
+    tct_add_argument(args, "items", "%s", "2");
+    tct_add_argument(args, "items", "%s", "3");
+    
+    char *result = tct_render("{{#each items}}[{{ items }}]{{/each}}", args);
+    assert(strcmp(result, "[1][2][3]") == 0);
+    
+    tct_free_argument(args);
+    free(result);
+}
+
+/* Array iteration - five items */
+TEST(array_five_items) {
+    tct_arguments *args = NULL;
+    tct_add_argument(args, "nums", "%d", 1);
+    tct_add_argument(args, "nums", "%d", 2);
+    tct_add_argument(args, "nums", "%d", 3);
+    tct_add_argument(args, "nums", "%d", 4);
+    tct_add_argument(args, "nums", "%d", 5);
+    
+    char *result = tct_render("{{#each nums}}{{ nums }}{{/each}}", args);
+    assert(strcmp(result, "12345") == 0);
+    
+    tct_free_argument(args);
+    free(result);
+}
+
+/* Array with text before and after */
+TEST(array_with_surrounding_text) {
+    tct_arguments *args = NULL;
+    tct_add_argument(args, "items", "%s", "A");
+    tct_add_argument(args, "items", "%s", "B");
+    
+    char *result = tct_render("Start: {{#each items}}{{ items }},{{/each}} End", args);
+    assert(strcmp(result, "Start: A,B, End") == 0);
+    
+    tct_free_argument(args);
+    free(result);
+}
+
+/* Nested array iteration */
+TEST(nested_array_iteration) {
+    tct_arguments *args = NULL;
+    tct_add_argument(args, "outer", "%s", "X");
+    tct_add_argument(args, "outer", "%s", "Y");
+    tct_add_argument(args, "inner", "%s", "1");
+    tct_add_argument(args, "inner", "%s", "2");
+    
+    char *result = tct_render("{{#each outer}}({{#each inner}}{{ inner }}{{/each}}){{/each}}", args);
+    assert(strcmp(result, "(12)(12)") == 0);
+    
+    tct_free_argument(args);
+    free(result);
+}
+
 int main() {
     printf("=== Running Loop Tests ===\n\n");
     
@@ -117,6 +189,13 @@ int main() {
     run_test_nested_each();
     run_test_each_with_if();
     run_test_if_with_each();
+    
+    /* Array iteration tests */
+    run_test_array_multiple_items();
+    run_test_array_with_separators();
+    run_test_array_five_items();
+    run_test_array_with_surrounding_text();
+    run_test_nested_array_iteration();
     
     printf("\n=== Test Results ===\n");
     printf("Tests run: %d\n", tests_run);

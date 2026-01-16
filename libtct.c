@@ -37,6 +37,12 @@ char* tct_get_valuen(tct_arguments *arguments, char *name, size_t name_len) {
     return argument ? &argument->data[name_len + 1] : "";
 }
 
+/* Helper function to find the next argument with the same name (for array iteration) */
+static tct_arguments* tct_find_next_argument(tct_arguments *current, char *name, size_t name_len) {
+    if (!current || !current->next) return NULL;
+    return tct_find_arguments(current->next, name, name_len);
+}
+
 static bool tct_find_symbol(char *template, char** start_, char** end_) {
     char* start;
     char* end;
@@ -217,27 +223,54 @@ char* tct_render(char *template, tct_arguments *argument) {
             
             char *block_end = tct_find_block_end(end + TCT_END_SIGN_LEN, "#each ", "/each");
             if (block_end) {
-                const char *value = tct_get_valuen(argument, var_name, var_len);
+                /* Collect all arguments with this name into an array for reverse iteration */
+                tct_arguments **arg_array = NULL;
+                int arg_count = 0;
+                int arg_capacity = 0;
                 
-                /* Current implementation: if value exists and is truthy, render once
-                 * Note: A full implementation would parse arrays/lists and iterate over items.
-                 * For now, this provides basic loop support for single items. */
-                if (tct_is_truthy(value)) {
-                    char *loop_content = end + TCT_END_SIGN_LEN;
-                    size_t loop_len = block_end - loop_content;
-                    char *loop_template = malloc(loop_len + 1);
-                    memcpy(loop_template, loop_content, loop_len);
-                    loop_template[loop_len] = '\0';
-                    
-                    char *rendered = tct_render(loop_template, argument);
-                    section_current->data = rendered;
-                    section_current->length = strlen(rendered);
-                    result_len += section_current->length;
-                    free(loop_template);
+                tct_arguments *current_arg = tct_find_arguments(argument, var_name, var_len);
+                while (current_arg) {
+                    if (arg_count >= arg_capacity) {
+                        arg_capacity = arg_capacity ? arg_capacity * 2 : 4;
+                        arg_array = realloc(arg_array, arg_capacity * sizeof(tct_arguments*));
+                    }
+                    arg_array[arg_count++] = current_arg;
+                    current_arg = tct_find_next_argument(current_arg, var_name, var_len);
                 }
                 
-                section_current->next = calloc(1, sizeof(tct_section));
-                section_current = section_current->next;
+                /* Iterate in reverse order (to match the order items were added) */
+                for (int i = arg_count - 1; i >= 0; i--) {
+                    const char *value = &arg_array[i]->data[var_len + 1];
+                    
+                    /* Only render if value is truthy */
+                    if (tct_is_truthy(value)) {
+                        char *loop_content = end + TCT_END_SIGN_LEN;
+                        size_t loop_len = block_end - loop_content;
+                        char *loop_template = malloc(loop_len + 1);
+                        memcpy(loop_template, loop_content, loop_len);
+                        loop_template[loop_len] = '\0';
+                        
+                        /* Create a scoped argument with current value prepended
+                         * This ensures {{ variable }} inside the loop refers to the current iteration value */
+                        tct_arguments *scoped_args = calloc(1, sizeof(tct_arguments) + var_len + 1 + strlen(value) + 1);
+                        memcpy(scoped_args->data, var_name, var_len);
+                        scoped_args->data[var_len] = '\0';
+                        strcpy(&scoped_args->data[var_len + 1], value);
+                        scoped_args->next = argument;
+                        
+                        char *rendered = tct_render(loop_template, scoped_args);
+                        section_current->data = rendered;
+                        section_current->length = strlen(rendered);
+                        result_len += section_current->length;
+                        free(loop_template);
+                        free(scoped_args);
+                        
+                        section_current->next = calloc(1, sizeof(tct_section));
+                        section_current = section_current->next;
+                    }
+                }
+                
+                free(arg_array);
                 
                 /* Skip past the closing tag */
                 template = block_end;
