@@ -1,25 +1,8 @@
+#include "libtct.h"
 #include <stdio.h>
 #include <stdlib.h> 
 #include <string.h>
-#include <stdarg.h>
-
-typedef enum {false=0, true} bool;
-
-#define TCT_START_SIGN "{{"
-#define TCT_END_SIGN "}}"
-#define TCT_START_SIGN_LEN (sizeof(TCT_START_SIGN)-1)
-#define TCT_END_SIGN_LEN (sizeof(TCT_END_SIGN)-1)
-
-typedef struct _tct_arguments {
-    struct _tct_arguments *next;
-    char data[0];
-} tct_arguments;
-
-typedef struct _tct_section {
-    char *data;
-    size_t length;
-    struct _tct_section *next;
-} tct_section; 
+#include <stdarg.h> 
 
 tct_arguments* tct_add_argument_(tct_arguments *next_argument, char *name, const char *format, ...) {
     va_list argp;
@@ -39,7 +22,6 @@ tct_arguments* tct_add_argument_(tct_arguments *next_argument, char *name, const
 
     return argument;
 }
-#define tct_add_argument(a, ...) {a = tct_add_argument_(a, __VA_ARGS__);}
 
 tct_arguments* tct_find_arguments(tct_arguments *arguments, char *name, size_t name_len) {
     while(arguments)
@@ -49,13 +31,11 @@ tct_arguments* tct_find_arguments(tct_arguments *arguments, char *name, size_t n
             arguments = arguments->next;
     return NULL;
 }
-#define tct_find_argument(a, n) tct_find_arguments(a, n, strlen(n))
 
 char* tct_get_valuen(tct_arguments *arguments, char *name, size_t name_len) {
     tct_arguments *argument = tct_find_arguments(arguments, name, name_len);
     return argument ? &argument->data[name_len + 1] : "";
 }
-#define tct_get_value(a, n) tct_get_valuen(a, n, strlen(n))
 
 static bool tct_find_symbol(char *template, char** start_, char** end_) {
     char* start;
@@ -91,6 +71,65 @@ void tct_free_argument(tct_arguments* arguments) {
     }
 }
 
+/* Helper function to check if a string represents a "truthy" value */
+static bool tct_is_truthy(const char *value) {
+    if (!value || value[0] == '\0') return false;
+    if (strcmp(value, "0") == 0) return false;
+    if (strcmp(value, "false") == 0) return false;
+    return true;
+}
+
+/* Helper function to find matching block end tag */
+static char* tct_find_block_end(char *start, const char *start_tag, const char *end_tag) {
+    size_t start_len = strlen(start_tag);
+    size_t end_len = strlen(end_tag);
+    int depth = 1;
+    char *pos = start;
+    
+    while (*pos && depth > 0) {
+        if (memcmp(pos, TCT_START_SIGN, TCT_START_SIGN_LEN) == 0) {
+            char *tag_start = pos + TCT_START_SIGN_LEN;
+            /* Skip whitespace */
+            while (*tag_start && (*tag_start == ' ' || *tag_start == '\t')) tag_start++;
+            
+            if (memcmp(tag_start, start_tag, start_len) == 0) {
+                depth++;
+            } else if (memcmp(tag_start, end_tag, end_len) == 0) {
+                depth--;
+                if (depth == 0) {
+                    return pos;
+                }
+            }
+        }
+        pos++;
+    }
+    return NULL;
+}
+
+/* Helper function to find else block within an if block */
+static char* tct_find_else_block(char *start, char *end) {
+    char *pos = start;
+    int depth = 0;
+    
+    while (pos < end) {
+        if (memcmp(pos, TCT_START_SIGN, TCT_START_SIGN_LEN) == 0) {
+            char *tag_start = pos + TCT_START_SIGN_LEN;
+            /* Skip whitespace */
+            while (tag_start < end && (*tag_start == ' ' || *tag_start == '\t')) tag_start++;
+            
+            if (memcmp(tag_start, "#if ", 4) == 0 || memcmp(tag_start, "#each ", 6) == 0) {
+                depth++;
+            } else if (memcmp(tag_start, "/if", 3) == 0 || memcmp(tag_start, "/each", 5) == 0) {
+                depth--;
+            } else if (depth == 0 && memcmp(tag_start, "#else", 5) == 0) {
+                return pos;
+            }
+        }
+        pos++;
+    }
+    return NULL;
+}
+
 char* tct_render(char *template, tct_arguments *argument) {
 #define IS_WHITESPACE(c) (c==' ' || c=='\t' || c=='\r' || c=='\n') 
     tct_section *section_start, *section_current;
@@ -116,6 +155,105 @@ char* tct_render(char *template, tct_arguments *argument) {
         trim_end = end;
         while (IS_WHITESPACE(trim_start[0])) trim_start++;
         while (IS_WHITESPACE(trim_end[-1])) trim_end--;
+        
+        /* Check for conditional blocks: {{#if variable}} */
+        if (memcmp(trim_start, "#if ", 4) == 0) {
+            char *var_name = trim_start + 4;
+            while (IS_WHITESPACE(*var_name)) var_name++;
+            size_t var_len = trim_end - var_name;
+            
+            char *block_end = tct_find_block_end(end + TCT_END_SIGN_LEN, "#if ", "/if");
+            if (block_end) {
+                char *else_pos = tct_find_else_block(end + TCT_END_SIGN_LEN, block_end);
+                const char *value = tct_get_valuen(argument, var_name, var_len);
+                
+                if (tct_is_truthy(value)) {
+                    /* Render the if block */
+                    char *if_content = end + TCT_END_SIGN_LEN;
+                    size_t if_len = (else_pos ? else_pos : block_end) - if_content;
+                    char *if_template = malloc(if_len + 1);
+                    memcpy(if_template, if_content, if_len);
+                    if_template[if_len] = '\0';
+                    
+                    char *rendered = tct_render(if_template, argument);
+                    section_current->data = rendered;
+                    section_current->length = strlen(rendered);
+                    result_len += section_current->length;
+                    free(if_template);
+                    /* Note: rendered is not freed here; it will be freed later in section cleanup */
+                } else if (else_pos) {
+                    /* Render the else block */
+                    char *else_start = else_pos;
+                    while (*else_start && memcmp(else_start, TCT_END_SIGN, TCT_END_SIGN_LEN) != 0) else_start++;
+                    else_start += TCT_END_SIGN_LEN;
+                    
+                    size_t else_len = block_end - else_start;
+                    char *else_template = malloc(else_len + 1);
+                    memcpy(else_template, else_start, else_len);
+                    else_template[else_len] = '\0';
+                    
+                    char *rendered = tct_render(else_template, argument);
+                    section_current->data = rendered;
+                    section_current->length = strlen(rendered);
+                    result_len += section_current->length;
+                    free(else_template);
+                }
+                
+                section_current->next = calloc(1, sizeof(tct_section));
+                section_current = section_current->next;
+                
+                /* Skip past the closing tag */
+                template = block_end;
+                while (*template && memcmp(template, TCT_END_SIGN, TCT_END_SIGN_LEN) != 0) template++;
+                if (*template) template += TCT_END_SIGN_LEN;
+                continue;
+            }
+        }
+        /* Check for loop blocks: {{#each variable}} */
+        else if (memcmp(trim_start, "#each ", 6) == 0) {
+            char *var_name = trim_start + 6;
+            while (IS_WHITESPACE(*var_name)) var_name++;
+            size_t var_len = trim_end - var_name;
+            
+            char *block_end = tct_find_block_end(end + TCT_END_SIGN_LEN, "#each ", "/each");
+            if (block_end) {
+                const char *value = tct_get_valuen(argument, var_name, var_len);
+                
+                /* Current implementation: if value exists and is truthy, render once
+                 * Note: A full implementation would parse arrays/lists and iterate over items.
+                 * For now, this provides basic loop support for single items. */
+                if (tct_is_truthy(value)) {
+                    char *loop_content = end + TCT_END_SIGN_LEN;
+                    size_t loop_len = block_end - loop_content;
+                    char *loop_template = malloc(loop_len + 1);
+                    memcpy(loop_template, loop_content, loop_len);
+                    loop_template[loop_len] = '\0';
+                    
+                    char *rendered = tct_render(loop_template, argument);
+                    section_current->data = rendered;
+                    section_current->length = strlen(rendered);
+                    result_len += section_current->length;
+                    free(loop_template);
+                }
+                
+                section_current->next = calloc(1, sizeof(tct_section));
+                section_current = section_current->next;
+                
+                /* Skip past the closing tag */
+                template = block_end;
+                while (*template && memcmp(template, TCT_END_SIGN, TCT_END_SIGN_LEN) != 0) template++;
+                if (*template) template += TCT_END_SIGN_LEN;
+                continue;
+            }
+        }
+        /* Check for closing tags - skip them as they're handled by the opening tags */
+        else if (memcmp(trim_start, "/if", 3) == 0 || memcmp(trim_start, "/each", 5) == 0 || 
+                 memcmp(trim_start, "#else", 5) == 0) {
+            template = end + TCT_END_SIGN_LEN;
+            continue;
+        }
+        
+        /* Default: variable substitution */
         section_current->data = tct_get_valuen(argument, trim_start, trim_end - trim_start);
         section_current->length = strlen(section_current->data);
         result_len += section_current->length;
@@ -141,27 +279,4 @@ char* tct_render(char *template, tct_arguments *argument) {
 
     return result;
 #undef IS_WHITESPACE
-}
-
-int main() {
-    char *template = "Welcome to {{ project_name }}!\n"
-        "{{ project_name }}({{ project_abbreviation }}) is a micro template "
-        "engine for {{ language }}. It has C-style usage, fewer lines of code "
-        "and just needs a standard library. The {{ project_name }} project is "
-        "released under the terms of the {{ license }} license.\n";
-    char *result;
-
-    tct_arguments *args = NULL;
-    tct_add_argument(args, "project_abbreviation", "%s", "TCT");
-    tct_add_argument(args, "project_name", "%s", "Tiny C Template engine");
-    tct_add_argument(args, "language", "%s", "C Language");
-    tct_add_argument(args, "license", "%s", "MIT");
-
-    result = tct_render(template, args);
-    fputs(result, stdout);
-
-    tct_free_argument(args);
-    free(result);
-
-    return 0;
 }
