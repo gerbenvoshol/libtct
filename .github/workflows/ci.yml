@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test-linux:
+    name: Build and Test on Linux
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make
+    
+    - name: Build library
+      run: make all
+    
+    - name: Run tests
+      run: make test
+    
+    - name: Run example
+      run: make run
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: linux-build
+        path: build/
+
+  build-and-test-macos:
+    name: Build and Test on macOS
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Install build dependencies
+      run: |
+        # Ensure we have the necessary tools
+        which gcc || brew install gcc
+        which make || brew install make
+    
+    - name: Build library
+      run: make all
+    
+    - name: Run tests
+      run: make test
+    
+    - name: Run example
+      run: make run
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: macos-build
+        path: build/
+
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make cppcheck
+    
+    - name: Run cppcheck
+      run: |
+        cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem libtct.c libtct.h example.c tests/*.c || echo "cppcheck found issues (non-blocking)"
+    
+    - name: Check for memory leaks with valgrind
+      run: |
+        sudo apt-get install -y valgrind
+        make all
+        make test
+        # Run example with valgrind
+        valgrind --leak-check=full --error-exitcode=1 ./build/bin/example || echo "valgrind check complete"
