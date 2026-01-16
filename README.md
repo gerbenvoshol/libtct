@@ -32,10 +32,22 @@ Tiny C Template engine (TCT) is a micro template engine for C Language with adva
 
 ### Loop Blocks
 ```c
-"{{#each items}}Item: {{ item }}{{/each}}"
+"{{#each items}}Item: {{ items }}{{/each}}"
 ```
 
-**Note**: The current implementation of loop blocks renders the content once if the variable is truthy. Full array iteration support is planned for future releases.
+Loop blocks support full array iteration. To create an array, add multiple arguments with the same name:
+
+```c
+tct_arguments *args = NULL;
+tct_add_argument(args, "items", "%s", "Apple");
+tct_add_argument(args, "items", "%s", "Banana");
+tct_add_argument(args, "items", "%s", "Cherry");
+
+char *result = tct_render("{{#each items}}{{ items }}, {{/each}}", args);
+// Result: "Apple, Banana, Cherry, "
+```
+
+**Note**: Items are iterated in the order they were added. Inside a loop block, the loop variable (e.g., `{{ items }}`) refers to the current iteration value.
 
 ### Nested Templates
 All template features can be nested arbitrarily deep:
@@ -129,6 +141,26 @@ tct_add_argument(args, "name", "%s", "John");
 tct_add_argument(args, "age", "%d", 25);
 tct_add_argument(args, "price", "%.2f", 19.99);
 ```
+
+### Creating Arrays for Loops
+
+To create an array for loop iteration, add multiple arguments with the same name:
+
+```c
+tct_arguments *args = NULL;
+tct_add_argument(args, "fruits", "%s", "Apple");
+tct_add_argument(args, "fruits", "%s", "Banana");
+tct_add_argument(args, "fruits", "%s", "Orange");
+
+char *template = "{{#each fruits}}- {{ fruits }}\n{{/each}}";
+char *result = tct_render(template, args);
+// Output:
+// - Apple
+// - Banana
+// - Orange
+```
+
+**Note**: Array items are iterated in the order they were added to the arguments list.
 
 ### Truthy Values
 
